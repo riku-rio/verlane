@@ -17,8 +17,6 @@ from verlane.ui import (
     generation_renderable,
     render_height,
     request_header,
-    response_row_count,
-    rewrite_request_header,
 )
 
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit"}
@@ -92,15 +90,13 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
             continue
 
         clear_typed_prompt(prompt)
-        header = request_header(prompt, view_mode)
-        header_rows = render_height(header)
-        console.print(header)
-
         messages.append({"role": "user", "content": prompt})
+
         assistant_parts: list[str] = []
         thinking_parts: list[str] = []
         final_chunk: ChatChunk | None = None
         started_at = perf_counter()
+        answer_started = False
 
         live: Live | None = None
         live_active = False
@@ -130,21 +126,25 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
                     settings.ollama_options(),
                 ):
                     final_chunk = chunk
-                    if chunk.thinking and live_active and live is not None:
+
+                    if chunk.thinking and not answer_started:
                         thinking_parts.append(chunk.thinking)
-                        renderable = generation_renderable(
-                            progress,
-                            "".join(thinking_parts),
-                            view_mode,
-                        )
-                        live_rows = render_height(renderable)
-                        live.update(renderable, refresh=True)
-                    if chunk.content:
                         if live_active and live is not None:
-                            live.stop()
-                            live_active = False
-                            clear_rendered_block(live_rows)
-                        typer.echo(chunk.content, nl=False)
+                            renderable = generation_renderable(
+                                progress,
+                                "".join(thinking_parts),
+                                view_mode,
+                            )
+                            live_rows = render_height(renderable)
+                            live.update(renderable, refresh=True)
+
+                    if chunk.content:
+                        if not answer_started:
+                            answer_started = True
+                            if live_active and live is not None:
+                                renderable = generation_renderable(progress, "", view_mode)
+                                live_rows = render_height(renderable)
+                                live.update(renderable, refresh=True)
                         assistant_parts.append(chunk.content)
             finally:
                 if live_active and live is not None:
@@ -156,17 +156,26 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
             return
         except OllamaError as exc:
             messages.pop()
+            console.print(
+                request_header(
+                    prompt,
+                    view_mode,
+                    _duration_seconds(final_chunk, started_at),
+                )
+            )
             typer.echo(f"Error: {exc}", err=True)
+            typer.echo()
             continue
 
         answer = "".join(assistant_parts)
-        typer.echo()
-        rewrite_request_header(
-            prompt,
-            view_mode,
-            _duration_seconds(final_chunk, started_at),
-            header_rows,
-            response_row_count(answer),
+        console.print(
+            request_header(
+                prompt,
+                view_mode,
+                _duration_seconds(final_chunk, started_at),
+            )
         )
+        if answer:
+            typer.echo(answer)
         typer.echo()
         messages.append({"role": "assistant", "content": answer})
