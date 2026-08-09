@@ -10,6 +10,7 @@ from verlane.settings import Settings
 from verlane.ui import (
     ViewMode,
     activity,
+    clear_rendered_block,
     clear_typed_prompt,
     console,
     generation_progress,
@@ -20,8 +21,9 @@ from verlane.ui import (
     rewrite_request_header,
 )
 
-EXIT_COMMANDS = {"exit", "quit"}
+EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit"}
 VIEW_COMMAND = "/view"
+HELP_COMMAND = "/help"
 
 
 def ensure_model_loaded(client: OllamaClient, settings: Settings) -> None:
@@ -41,6 +43,14 @@ def _duration_seconds(chunk: ChatChunk | None, started_at: float) -> float:
     return perf_counter() - started_at
 
 
+def _show_help() -> None:
+    typer.echo("\nCommands:\n")
+    typer.echo("  /help        Show available commands")
+    typer.echo("  /view        Toggle concise/full view")
+    typer.echo("  /exit        Exit Verlane")
+    typer.echo("  /quit        Exit Verlane\n")
+
+
 def run_chat(client: OllamaClient, settings: Settings) -> None:
     if settings.model is None:
         raise ValueError("A model must be selected before starting chat.")
@@ -54,6 +64,8 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
         typer.echo(f"Error: Could not load {settings.model}: {exc}", err=True)
         return
 
+    typer.echo("Type /help for commands.\n")
+
     while True:
         try:
             prompt = input("> ").strip()
@@ -66,9 +78,17 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
         lowered = prompt.lower()
         if lowered in EXIT_COMMANDS:
             return
+        if lowered == HELP_COMMAND:
+            _show_help()
+            continue
         if lowered == VIEW_COMMAND:
             view_mode = view_mode.toggled()
             typer.echo(f"View mode: {view_mode.value}\n")
+            continue
+        if prompt.startswith("/"):
+            command = prompt.split(maxsplit=1)[0]
+            typer.echo(f"Unknown command: {command}", err=True)
+            typer.echo("Type /help for commands.\n", err=True)
             continue
 
         clear_typed_prompt(prompt)
@@ -82,19 +102,26 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
         final_chunk: ChatChunk | None = None
         started_at = perf_counter()
 
+        live: Live | None = None
+        live_active = False
+        live_rows = 0
+
         try:
             ensure_model_loaded(client, settings)
-            progress = generation_progress()
-            live = Live(
-                generation_renderable(progress, "", view_mode),
-                console=console,
-                refresh_per_second=12,
-                transient=True,
-                vertical_overflow="ellipsis",
-            )
-            live_active = False
-            live.start()
-            live_active = True
+
+            if console.is_terminal:
+                progress = generation_progress()
+                renderable = generation_renderable(progress, "", view_mode)
+                live_rows = render_height(renderable)
+                live = Live(
+                    renderable,
+                    console=console,
+                    refresh_per_second=12,
+                    transient=False,
+                    vertical_overflow="ellipsis",
+                )
+                live.start()
+                live_active = True
 
             try:
                 for chunk in client.chat(
@@ -103,24 +130,27 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
                     settings.ollama_options(),
                 ):
                     final_chunk = chunk
-                    if chunk.thinking and live_active:
+                    if chunk.thinking and live_active and live is not None:
                         thinking_parts.append(chunk.thinking)
-                        live.update(
-                            generation_renderable(
-                                progress,
-                                "".join(thinking_parts),
-                                view_mode,
-                            )
+                        renderable = generation_renderable(
+                            progress,
+                            "".join(thinking_parts),
+                            view_mode,
                         )
+                        live_rows = render_height(renderable)
+                        live.update(renderable, refresh=True)
                     if chunk.content:
-                        if live_active:
+                        if live_active and live is not None:
                             live.stop()
                             live_active = False
+                            clear_rendered_block(live_rows)
                         typer.echo(chunk.content, nl=False)
                         assistant_parts.append(chunk.content)
             finally:
-                if live_active:
+                if live_active and live is not None:
                     live.stop()
+                    live_active = False
+                    clear_rendered_block(live_rows)
         except KeyboardInterrupt:
             typer.echo()
             return
