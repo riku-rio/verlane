@@ -1,6 +1,17 @@
+from __future__ import annotations
+
 import typer
 
 from verlane import __version__
+from verlane.chat import run_chat
+from verlane.ollama import (
+    OllamaClient,
+    OllamaError,
+    OllamaNotInstalledError,
+    OllamaStartError,
+    ensure_ollama_running,
+)
+from verlane.settings import Settings, load_settings, save_settings
 
 app = typer.Typer(
     add_completion=False,
@@ -15,6 +26,149 @@ def version_callback(value: bool) -> None:
         raise typer.Exit()
 
 
+def select_model(client: OllamaClient) -> str:
+    try:
+        models = client.list_models()
+    except OllamaError as exc:
+        typer.echo(f"Error: Could not read Ollama models: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if not models:
+        typer.echo("No Ollama models found.", err=True)
+        typer.echo("Install a model first with: ollama pull <model>", err=True)
+        raise typer.Exit(1)
+
+    typer.echo("Select a model:\n")
+    for index, model in enumerate(models, start=1):
+        typer.echo(f"  {index}. {model}")
+
+    while True:
+        choice = typer.prompt(f"\nModel [1-{len(models)}]")
+        try:
+            index = int(choice)
+        except ValueError:
+            typer.echo("Enter a model number from the list.", err=True)
+            continue
+
+        if 1 <= index <= len(models):
+            return models[index - 1]
+
+        typer.echo("Enter a model number from the list.", err=True)
+
+
+def ensure_model(client: OllamaClient, settings: Settings) -> Settings:
+    try:
+        models = client.list_models()
+    except OllamaError as exc:
+        typer.echo(f"Error: Could not read Ollama models: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if settings.model in models:
+        return settings
+
+    if settings.model is not None:
+        typer.echo(f"Configured model '{settings.model}' is not available.\n")
+
+    settings.model = select_model(client)
+    save_settings(settings)
+    typer.echo(f"\nUsing {settings.model}\n")
+    return settings
+
+
+def _format_setting(value: object | None) -> str:
+    return "Default" if value is None else str(value)
+
+
+def edit_context_size(settings: Settings) -> None:
+    while True:
+        value = typer.prompt(
+            "Context size (press Enter for Default)",
+            default="",
+            show_default=False,
+        ).strip()
+        if not value:
+            settings.context_size = None
+            return
+        try:
+            context_size = int(value)
+        except ValueError:
+            typer.echo("Context size must be a positive integer.", err=True)
+            continue
+        if context_size <= 0:
+            typer.echo("Context size must be a positive integer.", err=True)
+            continue
+        settings.context_size = context_size
+        return
+
+
+def edit_temperature(settings: Settings) -> None:
+    while True:
+        value = typer.prompt(
+            "Temperature (press Enter for Default)",
+            default="",
+            show_default=False,
+        ).strip()
+        if not value:
+            settings.temperature = None
+            return
+        try:
+            temperature = float(value)
+        except ValueError:
+            typer.echo("Temperature must be a non-negative number.", err=True)
+            continue
+        if temperature < 0:
+            typer.echo("Temperature must be a non-negative number.", err=True)
+            continue
+        settings.temperature = temperature
+        return
+
+
+def open_settings(client: OllamaClient) -> None:
+    settings = load_settings()
+
+    while True:
+        typer.echo("\nVerlane Settings\n")
+        typer.echo(f"  1. Model          {settings.model or 'Not set'}")
+        typer.echo(f"  2. Context size   {_format_setting(settings.context_size)}")
+        typer.echo(f"  3. Temperature    {_format_setting(settings.temperature)}")
+        typer.echo("\n  0. Exit")
+
+        choice = typer.prompt("\nSelect setting").strip()
+
+        if choice == "0":
+            return
+        if choice == "1":
+            prepare_ollama(client)
+            settings.model = select_model(client)
+        elif choice == "2":
+            edit_context_size(settings)
+        elif choice == "3":
+            edit_temperature(settings)
+        else:
+            typer.echo("Select a setting from the list.", err=True)
+            continue
+
+        save_settings(settings)
+        typer.echo("Settings saved.")
+
+
+def prepare_ollama(client: OllamaClient) -> None:
+    if not client.is_running():
+        typer.echo("Starting Ollama...")
+
+    try:
+        ensure_ollama_running(client)
+    except OllamaNotInstalledError:
+        typer.echo("Error: Ollama is not installed.", err=True)
+        typer.echo("Install Ollama and try again.", err=True)
+        raise typer.Exit(1)
+    except OllamaStartError as exc:
+        typer.echo("Error: Failed to start Ollama.", err=True)
+        typer.echo(str(exc), err=True)
+        typer.echo("Start Ollama manually and try again.", err=True)
+        raise typer.Exit(1) from exc
+
+
 @app.callback()
 def main(
     version: bool = typer.Option(
@@ -25,5 +179,18 @@ def main(
         is_eager=True,
         help="Show the Verlane version and exit.",
     ),
+    settings: bool = typer.Option(
+        False,
+        "--settings",
+        help="Open Verlane global settings.",
+    ),
 ) -> None:
-    typer.echo("Not Implemented Yet")
+    client = OllamaClient()
+
+    if settings:
+        open_settings(client)
+        raise typer.Exit()
+
+    prepare_ollama(client)
+    current_settings = ensure_model(client, load_settings())
+    run_chat(client, current_settings)
