@@ -34,6 +34,22 @@ class OllamaClient:
         except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
             raise OllamaError(str(exc)) from exc
 
+    def _post_json(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        request = Request(
+            f"{OLLAMA_URL}{path}",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request) as response:
+                return json.load(response)
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace").strip()
+            raise OllamaError(detail or f"Ollama returned HTTP {exc.code}.") from exc
+        except (URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+            raise OllamaError(str(exc)) from exc
+
     def is_running(self) -> bool:
         try:
             self._request_json("/api/version")
@@ -55,6 +71,37 @@ class OllamaClient:
             if isinstance(name, str) and name:
                 names.append(name)
         return names
+
+    def is_model_loaded(self, model: str, context_size: int | None = None) -> bool:
+        payload = self._request_json("/api/ps")
+        models = payload.get("models", [])
+        if not isinstance(models, list):
+            return False
+
+        for loaded in models:
+            if not isinstance(loaded, dict):
+                continue
+            name = loaded.get("model") or loaded.get("name")
+            if name != model:
+                continue
+            if context_size is None:
+                return True
+            return loaded.get("context_length") == context_size
+
+        return False
+
+    def load_model(
+        self,
+        model: str,
+        options: dict[str, int | float],
+    ) -> None:
+        payload: dict[str, Any] = {
+            "model": model,
+            "stream": False,
+        }
+        if options:
+            payload["options"] = options
+        self._post_json("/api/generate", payload)
 
     def chat(
         self,
@@ -110,7 +157,7 @@ def start_ollama() -> None:
     }
 
     if os.name == "nt":
-        kwargs["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
     else:
         kwargs["start_new_session"] = True
 
@@ -126,7 +173,7 @@ def ensure_ollama_running(client: OllamaClient) -> bool:
 
     start_ollama()
 
-    for _ in range(20):
+    for _ in range(40):
         time.sleep(0.25)
         if client.is_running():
             return True
