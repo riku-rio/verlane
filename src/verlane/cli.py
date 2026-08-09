@@ -2,7 +2,11 @@ import typer
 
 from verlane import __version__
 
-app = typer.Typer(add_completion=False, invoke_without_command=True)
+app = typer.Typer(
+    add_completion=False,
+    context_settings={"help_option_names": ["-h", "--help"]},
+    invoke_without_command=True,
+)
 
 
 def version_callback(value: bool) -> None:
