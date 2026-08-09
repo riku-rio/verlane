@@ -15,7 +15,7 @@ from rich.text import Text
 console = Console()
 
 CONCISE_PROMPT_LIMIT = 60
-CONCISE_THINKING_LIMIT = 240
+THINKING_PREVIEW_LIMIT = 240
 DURATION_COLUMN_WIDTH = 10
 _ERASE_LINE = Control((ControlType.ERASE_IN_LINE, 2))
 
@@ -74,6 +74,19 @@ def clear_typed_prompt(prompt: str) -> None:
     width = max(console.width, 1)
     cells = max(cell_len(f"> {prompt}"), 1)
     rows = max(1, (cells + width - 1) // width)
+
+    console.control(Control.move(0, -rows), Control.move_to_column(0))
+    for index in range(rows):
+        console.control(_ERASE_LINE)
+        if index < rows - 1:
+            console.control(Control.move(0, 1), Control.move_to_column(0))
+    if rows > 1:
+        console.control(Control.move(0, -(rows - 1)), Control.move_to_column(0))
+
+
+def clear_rendered_block(rows: int) -> None:
+    if not console.is_terminal or rows <= 0:
+        return
 
     console.control(Control.move(0, -rows), Control.move_to_column(0))
     for index in range(rows):
@@ -160,14 +173,13 @@ def generation_renderable(
     thinking: str,
     mode: ViewMode,
 ) -> RenderableType:
+    del mode
     items: list[RenderableType] = [progress.get_renderable()]
     if thinking:
-        shown = thinking
-        if mode is ViewMode.CONCISE:
-            shown = " ".join(thinking.split())
-            if len(shown) > CONCISE_THINKING_LIMIT:
-                shown = f"...{shown[-CONCISE_THINKING_LIMIT:]}"
-        label = Text("Thinking: ", style="bold dim")
+        shown = " ".join(thinking.split())
+        if len(shown) > THINKING_PREVIEW_LIMIT:
+            shown = f"...{shown[-THINKING_PREVIEW_LIMIT:]}"
+        label = Text("Thinking: ", style="bold dim", no_wrap=True, overflow="ellipsis")
         label.append(shown, style="dim")
         items.append(label)
     return Group(*items)
