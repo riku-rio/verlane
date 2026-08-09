@@ -9,14 +9,12 @@ from rich.console import Console, Group, RenderableType
 from rich.control import Control
 from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.segment import ControlType
-from rich.table import Table
 from rich.text import Text
 
 console = Console()
 
 CONCISE_PROMPT_LIMIT = 60
 THINKING_PREVIEW_LIMIT = 240
-DURATION_COLUMN_WIDTH = 10
 _ERASE_LINE = Control((ControlType.ERASE_IN_LINE, 2))
 
 
@@ -48,23 +46,16 @@ def _display_prompt(prompt: str, mode: ViewMode) -> str:
     return f"{prompt[:CONCISE_PROMPT_LIMIT].rstrip()}..."
 
 
-def request_header(
-    prompt: str,
-    mode: ViewMode,
-    duration_seconds: float | None = None,
-) -> Table:
-    table = Table.grid(expand=True, padding=(0, 1))
-    table.add_column(ratio=1, overflow="fold")
-    table.add_column(width=DURATION_COLUMN_WIDTH, justify="right", no_wrap=True)
-
+def request_header(prompt: str, mode: ViewMode) -> Text:
     request = Text("> ", style="bold")
     request.append(_display_prompt(prompt, mode))
-    duration = Text(
-        "" if duration_seconds is None else f"{duration_seconds:.2f}s",
-        style="dim",
-    )
-    table.add_row(request, duration)
-    return table
+    return request
+
+
+def duration_footer(duration_seconds: float) -> Text:
+    footer = Text("↳ ", style="dim")
+    footer.append(f"{duration_seconds:.2f}s", style="dim")
+    return footer
 
 
 def clear_typed_prompt(prompt: str) -> None:
