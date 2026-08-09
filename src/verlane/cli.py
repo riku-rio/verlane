@@ -12,6 +12,7 @@ from verlane.ollama import (
     ensure_ollama_running,
 )
 from verlane.settings import Settings, load_settings, save_settings
+from verlane.ui import activity
 
 app = typer.Typer(
     add_completion=False,
@@ -153,11 +154,12 @@ def open_settings(client: OllamaClient) -> None:
 
 
 def prepare_ollama(client: OllamaClient) -> None:
-    if not client.is_running():
-        typer.echo("Starting Ollama...")
+    if client.is_running():
+        return
 
     try:
-        ensure_ollama_running(client)
+        with activity("Starting Ollama..."):
+            ensure_ollama_running(client)
     except OllamaNotInstalledError:
         typer.echo("Error: Ollama is not installed.", err=True)
         typer.echo("Install Ollama and try again.", err=True)
