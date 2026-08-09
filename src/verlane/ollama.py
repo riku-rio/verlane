@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -23,6 +24,14 @@ class OllamaNotInstalledError(OllamaError):
 
 class OllamaStartError(OllamaError):
     pass
+
+
+@dataclass(frozen=True)
+class ChatChunk:
+    content: str = ""
+    thinking: str = ""
+    done: bool = False
+    total_duration_ns: int | None = None
 
 
 class OllamaClient:
@@ -108,11 +117,12 @@ class OllamaClient:
         model: str,
         messages: list[dict[str, str]],
         options: dict[str, int | float],
-    ) -> Iterator[str]:
+    ) -> Iterator[ChatChunk]:
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stream": True,
+            "think": True,
         }
         if options:
             payload["options"] = options
@@ -132,12 +142,37 @@ class OllamaClient:
                     chunk = json.loads(raw_line)
                     if not isinstance(chunk, dict):
                         continue
+
+                    error = chunk.get("error")
+                    if isinstance(error, str) and error:
+                        raise OllamaError(error)
+
                     message = chunk.get("message")
-                    if not isinstance(message, dict):
-                        continue
-                    content = message.get("content")
-                    if isinstance(content, str) and content:
-                        yield content
+                    content = ""
+                    thinking = ""
+                    if isinstance(message, dict):
+                        raw_content = message.get("content")
+                        raw_thinking = message.get("thinking")
+                        if isinstance(raw_content, str):
+                            content = raw_content
+                        if isinstance(raw_thinking, str):
+                            thinking = raw_thinking
+
+                    total_duration = chunk.get("total_duration")
+                    total_duration_ns = (
+                        total_duration
+                        if isinstance(total_duration, int) and not isinstance(total_duration, bool)
+                        else None
+                    )
+                    done = chunk.get("done") is True
+
+                    if content or thinking or done:
+                        yield ChatChunk(
+                            content=content,
+                            thinking=thinking,
+                            done=done,
+                            total_duration_ns=total_duration_ns,
+                        )
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
             raise OllamaError(detail or f"Ollama returned HTTP {exc.code}.") from exc
