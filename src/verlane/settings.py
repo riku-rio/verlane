@@ -23,6 +23,12 @@ class Settings:
             options["temperature"] = self.temperature
         return options
 
+    def ollama_load_options(self) -> dict[str, int | float]:
+        options: dict[str, int | float] = {}
+        if self.context_size is not None:
+            options["num_ctx"] = self.context_size
+        return options
+
 
 def load_settings() -> Settings:
     if not SETTINGS_PATH.exists():
