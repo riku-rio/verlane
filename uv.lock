@@ -89,11 +89,15 @@ wheels = [
 
 [[package]]
 name = "verlane"
-version = "0.0.1"
+version = "0.0.2"
 source = { editable = "." }
 dependencies = [
+    { name = "rich" },
     { name = "typer" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "typer", specifier = ">=0.16.0" }]
+requires-dist = [
+    { name = "rich", specifier = ">=13.7.0" },
+    { name = "typer", specifier = ">=0.16.0" },
+]
