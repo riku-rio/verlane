@@ -101,61 +101,6 @@ def render_height(renderable: RenderableType) -> int:
     return max(1, len(console.render_lines(renderable, console.options, pad=False)))
 
 
-def rewrite_request_header(
-    prompt: str,
-    mode: ViewMode,
-    duration_seconds: float,
-    header_rows: int,
-    response_rows: int,
-) -> None:
-    final_header = request_header(prompt, mode, duration_seconds)
-
-    if not console.is_terminal:
-        console.print(final_header)
-        return
-
-    console.control(
-        Control.move(0, -(header_rows + response_rows)),
-        Control.move_to_column(0),
-    )
-    for index in range(header_rows):
-        console.control(_ERASE_LINE)
-        if index < header_rows - 1:
-            console.control(Control.move(0, 1), Control.move_to_column(0))
-    if header_rows > 1:
-        console.control(Control.move(0, -(header_rows - 1)), Control.move_to_column(0))
-
-    console.print(final_header)
-    console.control(Control.move(0, response_rows), Control.move_to_column(0))
-
-
-def response_row_count(text: str) -> int:
-    width = max(console.width, 1)
-    rows = 1
-    column = 0
-
-    for char in text:
-        if char == "\n":
-            rows += 1
-            column = 0
-            continue
-        if char == "\r":
-            column = 0
-            continue
-        if char == "\t":
-            char_width = 8 - (column % 8)
-        else:
-            char_width = cell_len(char)
-        if char_width <= 0:
-            continue
-        if column >= width or column + char_width > width:
-            rows += 1
-            column = 0
-        column += char_width
-
-    return rows
-
-
 def generation_progress() -> Progress:
     progress = Progress(
         SpinnerColumn(),
