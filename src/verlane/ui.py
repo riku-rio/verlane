@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import Enum
 
+from rich.align import Align
 from rich.cells import cell_len
 from rich.console import Console, Group, RenderableType
 from rich.control import Control
@@ -56,6 +57,27 @@ def duration_footer(duration_seconds: float) -> Text:
     footer = Text("↳ ", style="dim")
     footer.append(f"{duration_seconds:.2f}s", style="dim")
     return footer
+
+
+def session_status(
+    model: str,
+    context_used: int,
+    context_total: int | None,
+) -> Align:
+    status = Text(style="dim")
+    status.append(model, style="bold dim")
+    status.append("  •  ")
+
+    if context_total is None:
+        status.append("Context unavailable")
+    else:
+        used = max(0, min(context_used, context_total))
+        remaining = max(context_total - used, 0)
+        status.append(f"Context {used:,} / {context_total:,}")
+        status.append("  •  ")
+        status.append(f"{remaining:,} left")
+
+    return Align.center(status)
 
 
 def clear_typed_prompt(prompt: str) -> None:
