@@ -13,6 +13,7 @@ from verlane.ui import (
     clear_rendered_block,
     clear_typed_prompt,
     console,
+    duration_footer,
     generation_progress,
     generation_renderable,
     render_height,
@@ -90,6 +91,7 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
             continue
 
         clear_typed_prompt(prompt)
+        console.print(request_header(prompt, view_mode))
         messages.append({"role": "user", "content": prompt})
 
         assistant_parts: list[str] = []
@@ -142,9 +144,10 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
                         if not answer_started:
                             answer_started = True
                             if live_active and live is not None:
-                                renderable = generation_renderable(progress, "", view_mode)
-                                live_rows = render_height(renderable)
-                                live.update(renderable, refresh=True)
+                                live.stop()
+                                live_active = False
+                                clear_rendered_block(live_rows)
+                        typer.echo(chunk.content, nl=False)
                         assistant_parts.append(chunk.content)
             finally:
                 if live_active and live is not None:
@@ -156,26 +159,14 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
             return
         except OllamaError as exc:
             messages.pop()
-            console.print(
-                request_header(
-                    prompt,
-                    view_mode,
-                    _duration_seconds(final_chunk, started_at),
-                )
-            )
+            if answer_started:
+                typer.echo()
             typer.echo(f"Error: {exc}", err=True)
             typer.echo()
             continue
 
         answer = "".join(assistant_parts)
-        console.print(
-            request_header(
-                prompt,
-                view_mode,
-                _duration_seconds(final_chunk, started_at),
-            )
-        )
-        if answer:
-            typer.echo(answer)
+        typer.echo()
+        console.print(duration_footer(_duration_seconds(final_chunk, started_at)))
         typer.echo()
         messages.append({"role": "assistant", "content": answer})
