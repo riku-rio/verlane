@@ -32,6 +32,8 @@ class ChatChunk:
     thinking: str = ""
     done: bool = False
     total_duration_ns: int | None = None
+    prompt_eval_count: int | None = None
+    eval_count: int | None = None
 
 
 class OllamaClient:
@@ -81,11 +83,11 @@ class OllamaClient:
                 names.append(name)
         return names
 
-    def is_model_loaded(self, model: str, context_size: int | None = None) -> bool:
+    def model_context_length(self, model: str) -> int | None:
         payload = self._request_json("/api/ps")
         models = payload.get("models", [])
         if not isinstance(models, list):
-            return False
+            return None
 
         for loaded in models:
             if not isinstance(loaded, dict):
@@ -93,11 +95,20 @@ class OllamaClient:
             name = loaded.get("model") or loaded.get("name")
             if name != model:
                 continue
-            if context_size is None:
-                return True
-            return loaded.get("context_length") == context_size
+            context_length = loaded.get("context_length")
+            if isinstance(context_length, int) and not isinstance(context_length, bool):
+                return context_length
+            return None
 
-        return False
+        return None
+
+    def is_model_loaded(self, model: str, context_size: int | None = None) -> bool:
+        loaded_context = self.model_context_length(model)
+        if loaded_context is None:
+            return False
+        if context_size is None:
+            return True
+        return loaded_context == context_size
 
     def load_model(
         self,
@@ -164,6 +175,19 @@ class OllamaClient:
                         if isinstance(total_duration, int) and not isinstance(total_duration, bool)
                         else None
                     )
+                    prompt_eval_count = chunk.get("prompt_eval_count")
+                    prompt_tokens = (
+                        prompt_eval_count
+                        if isinstance(prompt_eval_count, int)
+                        and not isinstance(prompt_eval_count, bool)
+                        else None
+                    )
+                    eval_count = chunk.get("eval_count")
+                    response_tokens = (
+                        eval_count
+                        if isinstance(eval_count, int) and not isinstance(eval_count, bool)
+                        else None
+                    )
                     done = chunk.get("done") is True
 
                     if content or thinking or done:
@@ -172,6 +196,8 @@ class OllamaClient:
                             thinking=thinking,
                             done=done,
                             total_duration_ns=total_duration_ns,
+                            prompt_eval_count=prompt_tokens,
+                            eval_count=response_tokens,
                         )
         except HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
