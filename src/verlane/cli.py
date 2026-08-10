@@ -186,6 +186,11 @@ def main(
         "--settings",
         help="Open Verlane global settings.",
     ),
+    plain: bool = typer.Option(
+        False,
+        "--plain",
+        help="Stream assistant responses as raw Markdown.",
+    ),
 ) -> None:
     client = OllamaClient()
 
@@ -195,4 +200,4 @@ def main(
 
     prepare_ollama(client)
     current_settings = ensure_model(client, load_settings())
-    run_chat(client, current_settings)
+    run_chat(client, current_settings, render_markdown=False if plain else None)

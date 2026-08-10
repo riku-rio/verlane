@@ -6,6 +6,7 @@ import typer
 from rich.live import Live
 
 from verlane.ollama import ChatChunk, OllamaClient, OllamaError
+from verlane.rendering import MarkdownStreamRenderer
 from verlane.settings import Settings
 from verlane.ui import (
     ViewMode,
@@ -70,7 +71,12 @@ def _show_status(model: str, context_used: int, context_total: int | None) -> No
     console.print(session_status(model, context_used, context_total))
 
 
-def run_chat(client: OllamaClient, settings: Settings) -> None:
+def run_chat(
+    client: OllamaClient,
+    settings: Settings,
+    *,
+    render_markdown: bool | None = None,
+) -> None:
     if settings.model is None:
         raise ValueError("A model must be selected before starting chat.")
 
@@ -124,6 +130,7 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
         final_chunk: ChatChunk | None = None
         started_at = perf_counter()
         answer_started = False
+        renderer = MarkdownStreamRenderer(console, render_markdown=render_markdown)
 
         live: Live | None = None
         live_active = False
@@ -174,31 +181,39 @@ def run_chat(client: OllamaClient, settings: Settings) -> None:
                                 live.stop()
                                 live_active = False
                                 clear_rendered_block(live_rows)
-                        typer.echo(chunk.content, nl=False)
+                            renderer.start()
                         assistant_parts.append(chunk.content)
+                        renderer.feed(chunk.content)
             finally:
                 if live_active and live is not None:
                     live.stop()
                     live_active = False
                     clear_rendered_block(live_rows)
         except KeyboardInterrupt:
-            typer.echo()
+            renderer.abort()
+            if renderer.wrote_output:
+                renderer.ensure_line_break()
+            else:
+                typer.echo()
             return
         except OllamaError as exc:
             messages.pop()
-            if answer_started:
-                typer.echo()
+            renderer.abort()
+            if renderer.wrote_output:
+                renderer.ensure_line_break()
             typer.echo(f"Error: {exc}", err=True)
             typer.echo()
             _show_status(settings.model, context_used, context_total)
             continue
 
         answer = "".join(assistant_parts)
+        renderer.finish()
+        renderer.ensure_line_break()
+
         measured_context = _context_used(final_chunk, context_total)
         if measured_context is not None:
             context_used = measured_context
 
-        typer.echo()
         console.print(duration_footer(_duration_seconds(final_chunk, started_at)))
         typer.echo()
         _show_status(settings.model, context_used, context_total)

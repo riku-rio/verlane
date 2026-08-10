@@ -1,6 +1,6 @@
 [project]
 name = "verlane"
-version = "0.0.2"
+version = "0.0.2.5"
 description = "A local-first agentic coding runtime."
 requires-python = ">=3.10"
 dependencies = [
