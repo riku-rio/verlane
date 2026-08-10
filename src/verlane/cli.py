@@ -80,10 +80,31 @@ def _format_setting(value: object | None) -> str:
     return "Default" if value is None else str(value)
 
 
+def _parse_context_size(value: str) -> int:
+    normalized = value.strip().lower()
+    multiplier = 1
+    if normalized.endswith("k"):
+        normalized = normalized[:-1]
+        multiplier = 1024
+    elif normalized.endswith("m"):
+        normalized = normalized[:-1]
+        multiplier = 1024 * 1024
+
+    try:
+        amount = int(normalized)
+    except ValueError as exc:
+        raise ValueError("invalid context size") from exc
+
+    context_size = amount * multiplier
+    if context_size <= 0:
+        raise ValueError("invalid context size")
+    return context_size
+
+
 def edit_context_size(settings: Settings) -> None:
     while True:
         value = typer.prompt(
-            "Context size (press Enter for Default)",
+            "Context size (e.g. 32768 or 32k; press Enter for Default)",
             default="",
             show_default=False,
         ).strip()
@@ -91,12 +112,12 @@ def edit_context_size(settings: Settings) -> None:
             settings.context_size = None
             return
         try:
-            context_size = int(value)
+            context_size = _parse_context_size(value)
         except ValueError:
-            typer.echo("Context size must be a positive integer.", err=True)
-            continue
-        if context_size <= 0:
-            typer.echo("Context size must be a positive integer.", err=True)
+            typer.echo(
+                "Context size must be a positive integer or use k/m (for example 32k).",
+                err=True,
+            )
             continue
         settings.context_size = context_size
         return
